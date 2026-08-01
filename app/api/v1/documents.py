@@ -38,6 +38,8 @@ logger = get_logger(__name__)
 router = APIRouter()
 
 ALLOWED_EXTENSIONS = {".txt", ".pdf", ".docx"}
+MAX_FILE_SIZE_MB = 50  # Maximum file size in megabytes
+MAX_FILE_SIZE_BYTES = MAX_FILE_SIZE_MB * 1024 * 1024
 
 
 def _safe_filename(filename: str | None) -> str:
@@ -71,6 +73,17 @@ def upload_document(
         raise HTTPException(
             status_code=400,
             detail=f"Unsupported file type '{extension}'. Allowed: {', '.join(sorted(ALLOWED_EXTENSIONS))}",
+        )
+
+    # Check file size before processing
+    file.file.seek(0, 2)  # Seek to end
+    file_size = file.file.tell()
+    file.file.seek(0)  # Reset to beginning
+    
+    if file_size > MAX_FILE_SIZE_BYTES:
+        raise HTTPException(
+            status_code=413,
+            detail=f"File too large. Maximum size is {MAX_FILE_SIZE_MB}MB, but file is {file_size / (1024 * 1024):.1f}MB.",
         )
 
     # Use a UUID prefix so two uploads of the same filename don't overwrite each other.

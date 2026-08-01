@@ -81,3 +81,13 @@ TOP_K_RESULTS = _int_setting("TOP_K_RESULTS", 4, minimum=1)
 LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO").strip().upper()
 if LOG_LEVEL not in {"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"}:
     raise ValueError("LOG_LEVEL must be DEBUG, INFO, WARNING, ERROR, or CRITICAL.")
+
+# ---------------------------------------------------------------------------
+# Advanced RAG tuning
+# ---------------------------------------------------------------------------
+# Hybrid Search: How many extra candidates to retrieve before RRF fusion (multiplier)
+HYBRID_SEARCH_MULTIPLIER = _int_setting("HYBRID_SEARCH_MULTIPLIER", 3, minimum=1)
+
+# RRF (Reciprocal Rank Fusion) constant - higher values give more weight to top-ranked items
+# Standard value is 60 based on research (Cormack et al., 2009)
+RRF_K = _int_setting("RRF_K", 60, minimum=1)

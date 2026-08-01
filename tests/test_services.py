@@ -83,7 +83,10 @@ def test_vector_store_search_returns_empty_when_no_index(tmp_path, monkeypatch):
 
     monkeypatch.setattr(vs, "VECTOR_INDEX_PATH", str(tmp_path / "index.faiss"))
     monkeypatch.setattr(vs, "METADATA_PATH", str(tmp_path / "metadata.pkl"))
-
+    
+    # Clear cache before test
+    vs._invalidate_cache()
+    
     results = vs.search([0.1] * 3072, top_k=4)
     assert results == []
 
@@ -108,7 +111,10 @@ def test_vector_store_removes_only_requested_document(tmp_path, monkeypatch):
 
     monkeypatch.setattr(vs, "VECTOR_INDEX_PATH", str(tmp_path / "index.faiss"))
     monkeypatch.setattr(vs, "METADATA_PATH", str(tmp_path / "metadata.pkl"))
-
+    
+    # Clear cache before test
+    vs._invalidate_cache()
+    
     vs.add_chunks(["alpha"], [[1.0, 0.0]], "alpha.txt", document_id="alpha")
     vs.add_chunks(["beta"], [[0.0, 1.0]], "beta.txt", document_id="beta")
 

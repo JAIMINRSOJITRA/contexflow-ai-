@@ -8,6 +8,9 @@ Hybrid Search (Reciprocal Rank Fusion - RRF):
   Combines dense vector similarity (FAISS) with lexical keyword matching (BM25 token search).
   Ensures both conceptual queries ("annual time off") and exact keyword matches
   ("INV-9021", "serial #") rank at the top of results.
+
+Performance Optimization:
+  Uses in-memory caching to avoid reloading FAISS index from disk on every operation.
 """
 import math
 import os
@@ -17,9 +20,14 @@ import re
 import faiss
 import numpy as np
 
-from app.core.config import METADATA_PATH, VECTOR_INDEX_PATH
+from app.core.config import METADATA_PATH, VECTOR_INDEX_PATH, HYBRID_SEARCH_MULTIPLIER, RRF_K
 
 _FALLBACK_DIM = 768
+
+# In-memory cache to avoid reloading FAISS index from disk on every operation
+_index_cache = None
+_metadata_cache = None
+_cache_initialized = False
 
 
 def _ensure_storage_directory() -> None:
@@ -29,8 +37,8 @@ def _ensure_storage_directory() -> None:
         os.makedirs(directory, exist_ok=True)
 
 
-def _load_index():
-    """Load the persisted index and metadata, or return an empty pair."""
+def _load_index_from_disk():
+    """Load the persisted index and metadata from disk."""
     if os.path.exists(VECTOR_INDEX_PATH) and os.path.exists(METADATA_PATH):
         index = faiss.read_index(VECTOR_INDEX_PATH)
         with open(METADATA_PATH, "rb") as f:
@@ -45,11 +53,39 @@ def _load_index():
     return faiss.IndexFlatL2(_FALLBACK_DIM), []
 
 
+def _load_index():
+    """Load the index and metadata, using in-memory cache when available."""
+    global _index_cache, _metadata_cache, _cache_initialized
+    
+    # If cache is not initialized, load from disk
+    if not _cache_initialized:
+        _index_cache, _metadata_cache = _load_index_from_disk()
+        _cache_initialized = True
+    
+    return _index_cache, _metadata_cache
+
+
+def _invalidate_cache():
+    """Clear the in-memory cache, forcing next load to read from disk."""
+    global _index_cache, _metadata_cache, _cache_initialized
+    _index_cache = None
+    _metadata_cache = None
+    _cache_initialized = False
+
+
 def _save_index(index, metadata) -> None:
+    """Save index and metadata to disk, then update the in-memory cache."""
+    global _index_cache, _metadata_cache, _cache_initialized
+    
     _ensure_storage_directory()
     faiss.write_index(index, VECTOR_INDEX_PATH)
     with open(METADATA_PATH, "wb") as f:
         pickle.dump(metadata, f)
+    
+    # Update cache with the new index and metadata
+    _index_cache = index
+    _metadata_cache = metadata
+    _cache_initialized = True
 
 
 def add_chunks(
@@ -140,7 +176,7 @@ def search(
         )
 
     # 1. Dense Vector Search (FAISS)
-    search_count = min(top_k * 3, index.ntotal)
+    search_count = min(top_k * HYBRID_SEARCH_MULTIPLIER, index.ntotal)
     query_vector = np.ascontiguousarray(np.asarray([query_embedding], dtype="float32"))
     _, dense_indices = index.search(query_vector, search_count)
     dense_valid = [idx for idx in dense_indices[0] if idx != -1]
@@ -153,15 +189,14 @@ def search(
     lexical_indices = _lexical_search(query_text, metadata, search_count)
 
     # 3. Reciprocal Rank Fusion (RRF)
-    # RRF Score = 1 / (k + rank)  where k=60
-    rrf_k = 60
+    # RRF Score = 1 / (k + rank)  where k=RRF_K (configurable)
     scores: dict[int, float] = {}
 
     for rank, idx in enumerate(dense_valid):
-        scores[idx] = scores.get(idx, 0.0) + (1.0 / (rrf_k + rank + 1))
+        scores[idx] = scores.get(idx, 0.0) + (1.0 / (RRF_K + rank + 1))
 
     for rank, idx in enumerate(lexical_indices):
-        scores[idx] = scores.get(idx, 0.0) + (1.0 / (rrf_k + rank + 1))
+        scores[idx] = scores.get(idx, 0.0) + (1.0 / (RRF_K + rank + 1))
 
     # Sort candidates by combined RRF score descending
     sorted_candidates = sorted(scores.keys(), key=lambda i: scores[i], reverse=True)
@@ -192,7 +227,10 @@ def remove_document_chunks(document_id: str) -> int:
 
 
 def reset_index() -> None:
-    """Delete the persisted index files entirely."""
+    """Delete the persisted index files entirely and clear the cache."""
     for path in (VECTOR_INDEX_PATH, METADATA_PATH):
         if os.path.exists(path):
             os.remove(path)
+    
+    # Clear the in-memory cache
+    _invalidate_cache()

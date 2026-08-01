@@ -106,13 +106,20 @@ def load_backend():
     load_dotenv(override=True)
 
     from app.db.database import initialize_database
-    initialize_database()
-
+    
+    # Ensure database is initialized (creates tables if they don't exist)
+    try:
+        initialize_database()
+    except Exception as e:
+        st.error(f"Database initialization failed: {e}")
+        raise
+    
     # pre-warm embedding model
     try:
         from app.services.embeddings import embed_text
         embed_text("warmup")
-    except Exception:
+    except Exception as e:
+        # Non-critical - embeddings will load on first use
         pass
 
     return True
@@ -140,9 +147,14 @@ if "provider"        not in st.session_state: st.session_state.provider        =
 
 # ── Helper utilities ─────────────────────────────────────────────────────────
 def get_documents():
+    """Get all documents from database with error handling."""
     db = next(get_db())
     try:
         return db.query(Document).order_by(Document.uploaded_at.desc()).all()
+    except Exception as e:
+        # If table doesn't exist or query fails, return empty list
+        # This handles first-run scenarios on Streamlit Cloud
+        return []
     finally:
         db.close()
 
@@ -180,6 +192,7 @@ def save_feedback(message_id: int, rating: str):
 
 
 def get_all_sessions():
+    """Get all chat sessions with error handling."""
     db = next(get_db())
     try:
         from sqlalchemy import func
@@ -208,6 +221,9 @@ def get_all_sessions():
                 "updated_at": row.latest,
             })
         return results
+    except Exception:
+        # Return empty list if database query fails
+        return []
     finally:
         db.close()
 
