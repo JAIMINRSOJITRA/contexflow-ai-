@@ -1,15 +1,14 @@
-"""Application entry point, router registration, and static Web UI mounting.
+"""Application entry point, router registration, and API-only backend.
 
 FastAPI reads this file to build the app. Every API group lives in its
 own router file under app/api/v1/ — main.py wires them together,
-registers the /health check, and serves the static frontend UI at /.
+registers the /health check, and provides a REST API backend.
+
+For the UI, use the Streamlit frontend in app.py at the project root.
 """
 from contextlib import asynccontextmanager
-from pathlib import Path
 
 from fastapi import FastAPI
-from fastapi.responses import FileResponse
-from fastapi.staticfiles import StaticFiles
 
 from app.api.v1 import chat, documents, evaluate, feedback, history
 from app.core.config import LOG_LEVEL
@@ -30,7 +29,7 @@ async def lifespan(_: FastAPI):
 
 app = FastAPI(
     title="ContextFlow AI",
-    description="A RAG-powered document knowledge assistant backend & Web UI.",
+    description="A RAG-powered document knowledge assistant backend API. Use the Streamlit frontend (app.py) for UI.",
     version="0.2.0",
     lifespan=lifespan,
 )
@@ -42,15 +41,16 @@ app.include_router(history.router,   prefix="/api/v1/chat",      tags=["chat"])
 app.include_router(feedback.router,  prefix="/api/v1/feedback",  tags=["feedback"])
 app.include_router(evaluate.router,  prefix="/api/v1/evaluate",  tags=["evaluate"])
 
-# Mount static files directory
-STATIC_DIR = Path(__file__).resolve().parent / "static"
-app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
-
 
 @app.get("/")
-def serve_ui():
-    """Serve the single-page application frontend at the root URL."""
-    return FileResponse(str(STATIC_DIR / "index.html"))
+def root():
+    """API root endpoint - redirects to documentation."""
+    return {
+        "message": "ContextFlow AI Backend API",
+        "docs": "/docs",
+        "health": "/health",
+        "note": "Use the Streamlit frontend (run: streamlit run app.py) for the web UI"
+    }
 
 
 @app.get("/health")
