@@ -5,11 +5,44 @@ Groq is called via the groq SDK.
 
 Everything outside this file calls only generate_answer(prompt, provider) —
 the provider-specific details are fully contained here.
-"""
-from app.core.config import DEFAULT_LLM_PROVIDER, GEMINI_API_KEY, GROQ_API_KEY
 
-GEMINI_MODEL = "gemini-2.5-flash"
-GROQ_MODEL = "llama-3.3-70b-versatile"
+Includes retry logic with exponential backoff for transient failures.
+"""
+import time
+from app.core.config import DEFAULT_LLM_PROVIDER, GEMINI_API_KEY, GROQ_API_KEY, GEMINI_MODEL, GROQ_MODEL
+
+# Retry configuration
+MAX_RETRIES = 3
+INITIAL_RETRY_DELAY = 1  # seconds
+MAX_RETRY_DELAY = 10  # seconds
+
+
+def _retry_with_backoff(func, *args, **kwargs):
+    """Execute function with exponential backoff on transient failures."""
+    delay = INITIAL_RETRY_DELAY
+    last_error = None
+    
+    for attempt in range(MAX_RETRIES):
+        try:
+            return func(*args, **kwargs)
+        except Exception as e:
+            last_error = e
+            error_str = str(e).lower()
+            
+            # Only retry on transient errors (rate limit, timeout, connection)
+            is_retryable = any(
+                keyword in error_str
+                for keyword in ["rate limit", "timeout", "connection", "503", "429", "500"]
+            )
+            
+            if not is_retryable or attempt == MAX_RETRIES - 1:
+                raise
+            
+            # Exponential backoff with jitter
+            time.sleep(delay)
+            delay = min(delay * 2, MAX_RETRY_DELAY)
+    
+    raise last_error
 
 
 def _gemini_answer(prompt: str) -> str:
@@ -65,12 +98,14 @@ def generate_answer(prompt: str, provider: str | None = None) -> str:
     Switching providers is a one-word change at the call site (or in .env).
     All provider-specific API differences live inside _gemini_answer and
     _groq_answer — nothing outside this file needs to change.
+    
+    Includes automatic retry with exponential backoff for transient failures.
     """
     provider = provider or DEFAULT_LLM_PROVIDER
     if provider == "gemini":
-        return _gemini_answer(prompt)
+        return _retry_with_backoff(_gemini_answer, prompt)
     if provider == "groq":
-        return _groq_answer(prompt)
+        return _retry_with_backoff(_groq_answer, prompt)
     raise ValueError(
         f"Unknown provider '{provider}'. Must be 'gemini' or 'groq'."
     )

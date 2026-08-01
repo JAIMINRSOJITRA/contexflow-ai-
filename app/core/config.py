@@ -91,3 +91,9 @@ HYBRID_SEARCH_MULTIPLIER = _int_setting("HYBRID_SEARCH_MULTIPLIER", 3, minimum=1
 # RRF (Reciprocal Rank Fusion) constant - higher values give more weight to top-ranked items
 # Standard value is 60 based on research (Cormack et al., 2009)
 RRF_K = _int_setting("RRF_K", 60, minimum=1)
+
+# ---------------------------------------------------------------------------
+# Model configuration
+# ---------------------------------------------------------------------------
+GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
+GROQ_MODEL = os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile")

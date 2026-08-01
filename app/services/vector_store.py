@@ -11,16 +11,20 @@ Hybrid Search (Reciprocal Rank Fusion - RRF):
 
 Performance Optimization:
   Uses in-memory caching to avoid reloading FAISS index from disk on every operation.
+  
+Embedding Provider Validation:
+  Tracks which embedding provider was used to create the index and validates on load.
 """
 import math
 import os
 import pickle
 import re
+import json
 
 import faiss
 import numpy as np
 
-from app.core.config import METADATA_PATH, VECTOR_INDEX_PATH, HYBRID_SEARCH_MULTIPLIER, RRF_K
+from app.core.config import METADATA_PATH, VECTOR_INDEX_PATH, HYBRID_SEARCH_MULTIPLIER, RRF_K, EMBEDDING_PROVIDER
 
 _FALLBACK_DIM = 768
 
@@ -28,6 +32,44 @@ _FALLBACK_DIM = 768
 _index_cache = None
 _metadata_cache = None
 _cache_initialized = False
+
+
+def _get_config_path():
+    """Get path to store index configuration metadata."""
+    return str(os.path.dirname(VECTOR_INDEX_PATH) + "/index_config.json")
+
+
+def _save_index_config(dimension: int, provider: str):
+    """Save index configuration for validation on subsequent loads."""
+    config = {
+        "dimension": dimension,
+        "embedding_provider": provider,
+        "created_at": str(__import__("datetime").datetime.now()),
+    }
+    config_path = _get_config_path()
+    os.makedirs(os.path.dirname(config_path), exist_ok=True)
+    with open(config_path, "w") as f:
+        json.dump(config, f, indent=2)
+
+
+def _load_index_config():
+    """Load index configuration if it exists."""
+    config_path = _get_config_path()
+    if os.path.exists(config_path):
+        with open(config_path, "r") as f:
+            return json.load(f)
+    return None
+
+
+def _validate_embedding_provider(current_provider: str):
+    """Validate that the current embedding provider matches the index."""
+    config = _load_index_config()
+    if config and config.get("embedding_provider") != current_provider:
+        raise ValueError(
+            f"Embedding provider mismatch! Index was created with '{config['embedding_provider']}' "
+            f"but you're now using '{current_provider}'. Delete the index files and re-upload documents, "
+            f"or change EMBEDDING_PROVIDER back to '{config['embedding_provider']}' in your .env file."
+        )
 
 
 def _ensure_storage_directory() -> None:
@@ -61,6 +103,10 @@ def _load_index():
     if not _cache_initialized:
         _index_cache, _metadata_cache = _load_index_from_disk()
         _cache_initialized = True
+        
+        # Validate embedding provider if index exists
+        if _index_cache.ntotal > 0:
+            _validate_embedding_provider(EMBEDDING_PROVIDER)
     
     return _index_cache, _metadata_cache
 
@@ -121,6 +167,10 @@ def add_chunks(
         for chunk in chunks
     )
     _save_index(index, metadata)
+    
+    # Save config on first upload to track embedding provider
+    if index.ntotal == len(chunks):  # First upload
+        _save_index_config(dimension, EMBEDDING_PROVIDER)
 
 
 def has_chunks() -> bool:
@@ -228,7 +278,7 @@ def remove_document_chunks(document_id: str) -> int:
 
 def reset_index() -> None:
     """Delete the persisted index files entirely and clear the cache."""
-    for path in (VECTOR_INDEX_PATH, METADATA_PATH):
+    for path in (VECTOR_INDEX_PATH, METADATA_PATH, _get_config_path()):
         if os.path.exists(path):
             os.remove(path)
     

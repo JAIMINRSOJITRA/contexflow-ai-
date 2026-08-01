@@ -32,6 +32,14 @@ def ask(request: AskRequest, db: Session = Depends(get_db)):
     """Run the RAG pipeline and return a grounded answer."""
     if not request.question.strip():
         raise HTTPException(status_code=400, detail="question cannot be empty.")
+    
+    # Add maximum question length
+    if len(request.question) > 1000:
+        raise HTTPException(
+            status_code=400,
+            detail="Question too long. Maximum 1000 characters allowed."
+        )
+    
     if request.provider not in (None, *SUPPORTED_PROVIDERS):
         raise HTTPException(status_code=400, detail="provider must be 'gemini' or 'groq'.")
 
