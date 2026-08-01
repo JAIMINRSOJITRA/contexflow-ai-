@@ -1,0 +1,19 @@
+services:
+  - type: web
+    name: contextflow-ai
+    env: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: DEFAULT_LLM_PROVIDER
+        value: groq
+      - key: EMBEDDING_PROVIDER
+        value: sentence-transformers
+      - key: LOCAL_EMBEDDING_MODEL
+        value: sentence-transformers/all-MiniLM-L6-v2
+      - key: DATABASE_URL
+        value: sqlite:///./app/db/contextflow.db
+      - key: UPLOAD_FOLDER
+        value: data/uploads
+      - key: VECTOR_INDEX_PATH
+        value: ./data/vector_index
